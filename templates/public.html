@@ -4,6 +4,7 @@
 <div class="public-page" style="padding: 10px;">
   <h2 style="text-align: center;">{{ department | upper }} Notices</h2>
   <div id="notices-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">
+    <!-- Initially loaded notices (if any) rendered by Flask -->
     {% for notice in notices %}
       <div class="notice" id="notice-{{ notice[0] }}" style="flex: 1 1 auto; max-width: 100%; box-sizing: border-box; margin: 10px;">
         {% set file_url = url_for('uploaded_file', filename=notice[2]) %}
@@ -22,44 +23,58 @@
 </div>
 
 <script>
-  // Initialize Socket.IO and join the department room.
-  var socket = io();
-  socket.emit('join', '{{ department }}');
+  document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Socket.IO and join the department room.
+    var socket = io();
+    socket.emit('join', '{{ department }}');
 
-  // Helper function to create a new notice element.
-  function createNotice(notice) {
-    var div = document.createElement('div');
-    div.className = 'notice';
-    div.id = 'notice-' + notice.id;
-    div.style.cssText = "flex: 1 1 auto; max-width: 100%; box-sizing: border-box; margin: 10px;";
-    var fileUrl = "/uploads/" + notice.filename;
-    if (['png', 'jpg', 'jpeg', 'gif', 'pdf_image'].includes(notice.filetype)) {
-      div.innerHTML = '<img src="'+fileUrl+'" alt="Notice Image" style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;">';
-    } else if (notice.filetype === 'mp4') {
-      div.innerHTML = '<video src="'+fileUrl+'" controls style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;"></video>';
-    } else if (notice.filetype === 'mp3') {
-      div.innerHTML = '<audio src="'+fileUrl+'" controls style="width: 100%; height: auto; display: block; margin: 0 auto;"></audio>';
-    } else {
-      div.innerHTML = '<a href="'+fileUrl+'" target="_blank" style="display: inline-block;">View Document</a>';
+    // On connection, fetch the latest notices automatically.
+    socket.on('connect', function() {
+      fetch("{{ url_for('get_latest_notices', dept=department) }}")
+        .then(response => response.json())
+        .then(data => {
+          let container = document.getElementById('notices-container');
+          container.innerHTML = ""; // Clear current notices.
+          data.forEach(function(notice) {
+            container.appendChild(createNotice(notice));
+          });
+        })
+        .catch(err => console.error("Error fetching latest notices:", err));
+    });
+
+    // Helper function to create a new notice element.
+    function createNotice(notice) {
+      var div = document.createElement('div');
+      div.className = 'notice';
+      div.id = 'notice-' + notice.id;
+      div.style.cssText = "flex: 1 1 auto; max-width: 100%; box-sizing: border-box; margin: 10px;";
+      var fileUrl = "/uploads/" + notice.filename;
+      if (['png', 'jpg', 'jpeg', 'gif', 'pdf_image'].includes(notice.filetype)) {
+        div.innerHTML = '<img src="'+ fileUrl +'" alt="Notice Image" style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;">';
+      } else if (notice.filetype === 'mp4') {
+        div.innerHTML = '<video src="'+ fileUrl +'" controls style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;"></video>';
+      } else if (notice.filetype === 'mp3') {
+        div.innerHTML = '<audio src="'+ fileUrl +'" controls style="width: 100%; height: auto; display: block; margin: 0 auto;"></audio>';
+      } else {
+        div.innerHTML = '<a href="'+ fileUrl +'" target="_blank" style="display: inline-block;">View Document</a>';
+      }
+      return div;
     }
-    return div;
-  }
 
-  // Listen for new immediate notices.
-  socket.on('new_notice', function(data) {
-    // Prevent duplicate insertion.
-    if(document.getElementById('notice-' + data.id)) return;
-    var container = document.getElementById('notices-container');
-    var noticeElement = createNotice(data);
-    container.insertBefore(noticeElement, container.firstChild);
-  });
+    // Listen for new immediate notices.
+    socket.on('new_notice', function(data) {
+      if (document.getElementById('notice-' + data.id)) return; // Avoid duplicates.
+      var container = document.getElementById('notices-container');
+      container.insertBefore(createNotice(data), container.firstChild);
+    });
 
-  // Listen for deletion events.
-  socket.on('delete_notice', function(data) {
-    var elem = document.getElementById('notice-' + data.id);
-    if(elem) {
-      elem.parentElement.removeChild(elem);
-    }
+    // Listen for delete notice events.
+    socket.on('delete_notice', function(data) {
+      var elem = document.getElementById('notice-' + data.id);
+      if (elem) {
+        elem.parentElement.removeChild(elem);
+      }
+    });
   });
 </script>
 {% endblock %}
