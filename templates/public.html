@@ -4,31 +4,27 @@
 <div class="public-page" style="padding: 10px;">
   <h2 style="text-align: center;">{{ department | upper }} Notices</h2>
   <div id="notices-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;">
-    <!-- Initially rendered notices (if any) -->
-    {% for notice in notices %}
-      <div class="notice" id="notice-{{ notice[0] }}" style="flex: 1 1 auto; max-width: 100%; box-sizing: border-box; margin: 10px;">
-        {% set file_url = url_for('uploaded_file', filename=notice[2]) %}
-        {% if notice[3] in ['png', 'jpg', 'jpeg', 'gif', 'pdf_image'] %}
-          <img src="{{ file_url }}" alt="Notice Image" style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;">
-        {% elif notice[3] == 'mp4' %}
-          <video src="{{ file_url }}" controls style="width: 100%; height: auto; max-height: 90vh; object-fit: contain; display: block; margin: 0 auto;"></video>
-        {% elif notice[3] == 'mp3' %}
-          <audio src="{{ file_url }}" controls style="width: 100%; height: auto; display: block; margin: 0 auto;"></audio>
-        {% else %}
-          <a href="{{ file_url }}" target="_blank" style="display: inline-block;">View Document</a>
-        {% endif %}
-      </div>
-    {% endfor %}
+    <!-- Initial notices can be empty since we are fetching them immediately -->
   </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Initialize Socket.IO and join the department room.
-  var socket = io();
-  socket.emit('join', '{{ department }}');
-
-  // Helper function to create a notice element.
+  // Immediately fetch and render existing notices from the server
+  function fetchNotices() {
+    fetch("{{ url_for('get_latest_notices', dept=department) }}")
+      .then(response => response.json())
+      .then(data => {
+        var container = document.getElementById('notices-container');
+        container.innerHTML = ""; // Clear any existing content
+        data.forEach(function(notice) {
+          container.appendChild(createNotice(notice));
+        });
+      })
+      .catch(err => console.error("Error fetching notices:", err));
+  }
+  
+  // Helper function to create a notice element
   function createNotice(notice) {
     var div = document.createElement('div');
     div.className = 'notice';
@@ -47,40 +43,29 @@ document.addEventListener('DOMContentLoaded', function() {
     return div;
   }
 
-  // Fetch the latest immediate notices on connection.
-  function fetchNotices() {
-    fetch("{{ url_for('get_latest_notices', dept=department) }}")
-      .then(response => response.json())
-      .then(data => {
-        var container = document.getElementById('notices-container');
-        container.innerHTML = ""; // Clear current content.
-        data.forEach(function(notice) {
-          container.appendChild(createNotice(notice));
-        });
-      })
-      .catch(err => console.error("Error fetching notices:", err));
-  }
+  // Fetch notices immediately on page load
+  fetchNotices();
 
-  socket.on('connect', function() {
-    fetchNotices();
-  });
+  // Setup Socket.IO connection
+  var socket = io();
+  socket.emit('join', '{{ department }}');
 
   // Listen for new immediate notices.
   socket.on('new_notice', function(data) {
-    // Prevent duplicate insertion.
+    // Avoid duplicate insertion.
     if (document.getElementById('notice-' + data.id)) return;
     var container = document.getElementById('notices-container');
     container.insertBefore(createNotice(data), container.firstChild);
   });
 
-  // Listen for new prescheduled notices (if sent before scheduled time).
+  // Listen for new prescheduled notices (if sent before the scheduled time).
   socket.on('new_prescheduled_notice', function(data) {
     if (document.getElementById('notice-' + data.id)) return;
     var container = document.getElementById('notices-container');
     container.insertBefore(createNotice(data), container.firstChild);
   });
 
-  // Listen for removal of prescheduled notices (when they are replaced by immediate ones).
+  // Listen for removal of prescheduled notices (when replaced by immediate ones).
   socket.on('remove_prescheduled_notice', function(data) {
     var elem = document.getElementById('notice-' + data.id);
     if (elem) {
@@ -88,7 +73,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
-  // Listen for deletion events (for manual deletion or expired notices).
+  // Listen for deletion events (manual deletion or expired notices).
   socket.on('delete_notice', function(data) {
     var elem = document.getElementById('notice-' + data.id);
     if (elem) {
